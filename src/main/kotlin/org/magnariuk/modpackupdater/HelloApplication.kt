@@ -45,7 +45,7 @@ class HelloApplication : Application() {
 
 
     companion object {
-        const val VERSION = "0.0.1 beta"
+        const val VERSION = "0.0.3 beta"
     }
 
     fun showDonePopup(count: Int) {
@@ -230,6 +230,16 @@ class HelloApplication : Application() {
 
         val vrs = mojangAPI.getVersions()
 
+
+        val loaderSelectionLabel = Label("Loader Selection")
+        val loadersComboBox = ComboBox<String>().apply {
+            prefWidth = 150.0
+            items.addAll("default", "fabric", "forge", "quilt", "neoforge")
+            selectionModel.select("default")
+        }
+        val loaderSelectionHBox = HBox(10.0, loadersComboBox, loaderSelectionLabel)
+
+
         val showSnapshotsCheckBox = CheckBox("Show snapshots").apply {
             setOnAction {
                 if(isSelected){
@@ -276,11 +286,11 @@ class HelloApplication : Application() {
             maxWidth = Double.MAX_VALUE
             setOnAction {
 
-                if(File(modrinthProfileDirectoryPathField.text).exists() && File(resultFolderPathField.text).exists() && versionComboBox.selectionModel.selectedItem != null) {
+                if(File(modrinthProfileDirectoryPathField.text).exists() && File(resultFolderPathField.text).exists() && versionComboBox.selectionModel.selectedItem != null && loadersComboBox.selectionModel.selectedItem != null) {
                     val startTime = System.nanoTime()
                     val modrinthProfileController = ModrinthProfileController()
-                    val profile = modrinthProfileController.getProfile(Paths.get(modrinthProfileDirectoryPathField.text))?.projects
-                    val profile_files = profile?.values?.toList()?.iterator()
+                    val profile = modrinthProfileController.getProfile(Paths.get(modrinthProfileDirectoryPathField.text))
+                    val profile_files = profile?.projects?.values?.toList()?.iterator()
                     var to_download: MutableList<ProfileProject> = mutableListOf()
                     while (profile_files?.hasNext()!!) {
                         val p = profile_files.next()
@@ -288,15 +298,30 @@ class HelloApplication : Application() {
                             to_download.add(p)
                         }
                     }
-                    modrinthAPI.download(to_download.get(0), versionComboBox.selectionModel.selectedItem.toString(), "fabric", File(resultFolderPathField.text))
+
+                    val useOnlyStable = cacheController.getCache()?.Settings?.useOnlyStableVersions
+
+                    var loader: String
+                    if (loadersComboBox.selectionModel.selectedItem == "default"){
+                        loader = profile.metadata.loader
+                    } else{
+                        loader = loadersComboBox.selectionModel.selectedItem
+                    }
+
 
                     val all = to_download.count()
                     var count: Int = 1
                     val d_iterator = to_download.iterator()
                     while (d_iterator.hasNext()) {
                         val p = d_iterator.next()
-                        println("[$count/$all]")
-                        modrinthAPI.download(p, versionComboBox.selectionModel.selectedItem.toString(), "fabric", File(resultFolderPathField.text))
+
+                        println("[$count/$all]: ${p.metadata.project.title}")
+                        if (useOnlyStable != null) {
+                            modrinthAPI.download(p, versionComboBox.selectionModel.selectedItem.toString(), loader, File(resultFolderPathField.text), to_download, useOnlyStableVersion = useOnlyStable)
+                        } else{
+                            modrinthAPI.download(p, versionComboBox.selectionModel.selectedItem.toString(), loader, File(resultFolderPathField.text), to_download)
+
+                        }
                         count++
 
                     }
@@ -305,7 +330,8 @@ class HelloApplication : Application() {
                     val duration = endTime - startTime
                     val durationInSeconds = duration / 1_000_000_000.0
                     println("Time taken: $durationInSeconds seconds")
-                    println("____________________________\n\n")
+                    println("______________________________________________")
+                    println("______________________________________________\n")
                     showDonePopup(count)
                 } else{
                     showPopup("ERROR", "Check all selections")
@@ -316,7 +342,7 @@ class HelloApplication : Application() {
 
             }
         }
-        val mainUpdaterMenuVbox = VBox(10.0, modrinthProfileDirectoryLabel, folderHBox, resultFolderLabel, resultFolderHBox, versionHBox, updateButton).apply {
+        val mainUpdaterMenuVbox = VBox(10.0, modrinthProfileDirectoryLabel, folderHBox, resultFolderLabel, resultFolderHBox, loaderSelectionHBox, versionHBox, updateButton).apply {
             alignment = Pos.CENTER
             padding = Insets(10.0)
         }
@@ -347,6 +373,29 @@ class HelloApplication : Application() {
         }
 
         val settingsAnchorPane = AnchorPane()
+
+        val onlyStableCheckBox = CheckBox("Use Only Stable Versions").apply {
+            setOnAction {
+                val cache = cacheController.getCache()
+                if(isSelected){
+                    cache?.Settings?.useOnlyStableVersions = true
+                } else{
+                    cache?.Settings?.useOnlyStableVersions = false
+                }
+
+                if (cache != null) {
+                    cacheController.saveCache(cache)
+                }
+            }
+        }
+
+        val onlyStableHBox = HBox(10.0, onlyStableCheckBox)
+    val settingsVBox = VBox(10.0, onlyStableHBox).apply {
+        alignment = Pos.CENTER
+        padding = Insets(10.0)
+    }
+    settingsAnchorPane.children.add(settingsVBox)
+
         val settingsTab = Tab("Settings", settingsAnchorPane).apply {
             isClosable = false
         }
