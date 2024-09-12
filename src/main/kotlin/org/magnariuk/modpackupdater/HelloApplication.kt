@@ -20,6 +20,7 @@ import org.magnariuk.modpackupdater.data.api.ModrinthAPI
 import org.magnariuk.modpackupdater.data.api.MojangAPI
 import org.magnariuk.modpackupdater.data.classes.ProfileProject
 import org.magnariuk.modpackupdater.data.local.CacheController
+import org.magnariuk.modpackupdater.data.local.FolderParceAPI
 import org.magnariuk.modpackupdater.data.local.ModrinthProfileController
 
 import java.awt.Desktop
@@ -45,7 +46,7 @@ class HelloApplication : Application() {
 
 
     companion object {
-        const val VERSION = "0.0.3 beta"
+        const val VERSION = "0.1.5 beta"
     }
 
     fun showDonePopup(count: Int) {
@@ -132,6 +133,7 @@ class HelloApplication : Application() {
 
         val updaterAnchorPane = AnchorPane()
 
+
         val modrinthProfileDirectoryLabel = Label("Select Modrinth Profile Folder:")
         val modrinthProfileDirectoryPathField = TextField().apply {
             prefWidth = 300.0
@@ -140,21 +142,41 @@ class HelloApplication : Application() {
 
         val browseModrinthProfileJson = Button("Browse").apply {
             setOnAction {
-                val fileChooser = FileChooser().apply {
-                    title = "Select Modrinth \"profile.json\""
-                    extensionFilters.add(FileChooser.ExtensionFilter("Modrinth Profile Json", "*.json"))
-                    val initialDir = File(modrinthProfileDirectoryPathField.text).parentFile
-                    initialDirectory = if (initialDir != null && initialDir.exists()) initialDir else File(System.getProperty("user.home"))
-                }
-                val selectedDirectory = fileChooser.showOpenDialog(null)
-                selectedDirectory?.let {
-                    modrinthProfileDirectoryPathField.text = it.absolutePath
-                    val cache = cacheController.getCache()
-                    if (cache != null) {
-                        cache.modrinthFolderPath = it.absolutePath
-                        cacheController.saveCache(cache)
+                val umm = cacheController.getCache()?.Settings?.useModrinthMode
+                if(umm != null && umm == false){
+                    val directoryChooser = DirectoryChooser().apply {
+                        title = "Select Folder With Your Mods"
+                        val initialDir = File(modrinthProfileDirectoryPathField.text).parentFile
+                        initialDirectory = if (initialDir.exists() && initialDir.isDirectory) initialDir else File(System.getProperty("user.home"))
+
+                    }
+                    val selectedDirectory = directoryChooser.showDialog(null)
+                    selectedDirectory?.let {
+                        modrinthProfileDirectoryPathField.text = it.absolutePath
+                        val cache = cacheController.getCache()
+                        if (cache != null) {
+                            cache.modrinthFolderPath = it.absolutePath
+                            cacheController.saveCache(cache)
+                        }
+                    }
+                } else{
+                    val fileChooser = FileChooser().apply {
+                        title = "Select Modrinth \"profile.json\""
+                        extensionFilters.add(FileChooser.ExtensionFilter("Modrinth Profile Json", "*.json"))
+                        val initialDir = File(modrinthProfileDirectoryPathField.text).parentFile
+                        initialDirectory = if (initialDir != null && initialDir.exists()) initialDir else File(System.getProperty("user.home"))
+                    }
+                    val selectedDirectory = fileChooser.showOpenDialog(null)
+                    selectedDirectory?.let {
+                        modrinthProfileDirectoryPathField.text = it.absolutePath
+                        val cache = cacheController.getCache()
+                        if (cache != null) {
+                            cache.modrinthFolderPath = it.absolutePath
+                            cacheController.saveCache(cache)
+                        }
                     }
                 }
+
             }
         }
         val openModrinthProfileDirectory = Button("Open").apply {
@@ -263,12 +285,7 @@ class HelloApplication : Application() {
             }
         }
 
-        val defaultCache = cacheController.getCache()
-        if (defaultCache != null) {
-            modrinthProfileDirectoryPathField.text = defaultCache.modrinthFolderPath
-            resultFolderPathField.text = defaultCache.resultFolderPath
-            showSnapshotsCheckBox.isSelected = defaultCache.showSnapshots
-        }
+
 
         if (showSnapshotsCheckBox.isSelected) {
             versionComboBox.items = vrs?.let { mojangAPI.getVersionsList(it, true) }
@@ -286,45 +303,90 @@ class HelloApplication : Application() {
             maxWidth = Double.MAX_VALUE
             setOnAction {
 
-                if(File(modrinthProfileDirectoryPathField.text).exists() && File(resultFolderPathField.text).exists() && versionComboBox.selectionModel.selectedItem != null && loadersComboBox.selectionModel.selectedItem != null) {
+                if((File(modrinthProfileDirectoryPathField.text).exists()) && File(resultFolderPathField.text).exists() && versionComboBox.selectionModel.selectedItem != null && loadersComboBox.selectionModel.selectedItem != null) {
                     val startTime = System.nanoTime()
-                    val modrinthProfileController = ModrinthProfileController()
-                    val profile = modrinthProfileController.getProfile(Paths.get(modrinthProfileDirectoryPathField.text))
-                    val profile_files = profile?.projects?.values?.toList()?.iterator()
-                    var to_download: MutableList<ProfileProject> = mutableListOf()
-                    while (profile_files?.hasNext()!!) {
-                        val p = profile_files.next()
-                        if(p.metadata.type == "modrinth" && p.metadata.project.project_type == "mod"){
-                            to_download.add(p)
+
+
+
+                    if(cacheController.getCache()?.Settings?.useModrinthMode == true){
+                        val modrinthProfileController = ModrinthProfileController()
+                        val profile = modrinthProfileController.getProfile(Paths.get(modrinthProfileDirectoryPathField.text))
+                        val profile_files = profile?.projects?.values?.toList()?.iterator()
+                        var to_download: MutableList<ProfileProject> = mutableListOf()
+                        while (profile_files?.hasNext()!!) {
+                            val p = profile_files.next()
+                            if (p.metadata?.project?.project_type != null && p.metadata.project.project_type == "mod") {
+                                to_download.add(p)
+                            }
                         }
-                    }
-
-                    val useOnlyStable = cacheController.getCache()?.Settings?.useOnlyStableVersions
-
-                    var loader: String
-                    if (loadersComboBox.selectionModel.selectedItem == "default"){
-                        loader = profile.metadata.loader
-                    } else{
-                        loader = loadersComboBox.selectionModel.selectedItem
-                    }
 
 
-                    val all = to_download.count()
-                    var count: Int = 1
-                    val d_iterator = to_download.iterator()
-                    while (d_iterator.hasNext()) {
-                        val p = d_iterator.next()
 
-                        println("[$count/$all]: ${p.metadata.project.title}")
-                        if (useOnlyStable != null) {
-                            modrinthAPI.download(p, versionComboBox.selectionModel.selectedItem.toString(), loader, File(resultFolderPathField.text), to_download, useOnlyStableVersion = useOnlyStable)
+                        val useOnlyStable = cacheController.getCache()?.Settings?.useOnlyStableVersions
+
+                        var loader: String
+                        if (loadersComboBox.selectionModel.selectedItem == "default"){
+                            loader = profile.metadata.loader
                         } else{
-                            modrinthAPI.download(p, versionComboBox.selectionModel.selectedItem.toString(), loader, File(resultFolderPathField.text), to_download)
+                            loader = loadersComboBox.selectionModel.selectedItem
+                        }
+
+
+                        val all = to_download.count()
+                        var count: Int = 1
+                        val d_iterator = to_download.iterator()
+                        while (d_iterator.hasNext()) {
+                            val p = d_iterator.next()
+
+
+
+                            if (p.metadata.type == "modrinth"){
+                                println("[$count/$all]: ${p.metadata.project.title}")
+                                if (useOnlyStable != null) {
+                                    modrinthAPI.download(p, versionComboBox.selectionModel.selectedItem.toString(), loader, File(resultFolderPathField.text), to_download, useOnlyStableVersion = useOnlyStable)
+                                } else{
+                                    modrinthAPI.download(p, versionComboBox.selectionModel.selectedItem.toString(), loader, File(resultFolderPathField.text), to_download)
+
+                                }
+                            } else{
+                                println("[$count/$all]: ${p.metadata.project.title} is from external source")
+                            }
+
+                            count++
 
                         }
-                        count++
+
+                        showDonePopup(count)
+                    } else{
+                        val folderController = FolderParceAPI()
+                        val modrinthAPI = ModrinthAPI()
+
+                        val mods = folderController.process(File(modrinthProfileDirectoryPathField.text))
+                        val useOnlyStable = cacheController.getCache()?.Settings?.useOnlyStableVersions
+
+                        val mods_i = mods?.iterator()
+                        if (mods_i != null) {
+                            while (mods_i.hasNext()){
+                                val mod = mods_i.next()
+                                println("${mod.name}")
+                                val pr = modrinthAPI.searchProject(mod)
+                                if(pr != null) {
+                                    if (useOnlyStable != null) {
+                                        modrinthAPI.downloadF(pr, versionComboBox.selectionModel.selectedItem.toString(), "fabric", File(resultFolderPathField.text), useOnlyStableVersion = useOnlyStable)
+                                    } else{
+                                        modrinthAPI.downloadF(pr, versionComboBox.selectionModel.selectedItem.toString(), "fabric", File(resultFolderPathField.text))
+                                    }
+                                    }
+
+
+
+                            }
+                        }
+
 
                     }
+
+
 
                     val endTime = System.nanoTime()
                     val duration = endTime - startTime
@@ -332,7 +394,7 @@ class HelloApplication : Application() {
                     println("Time taken: $durationInSeconds seconds")
                     println("______________________________________________")
                     println("______________________________________________\n")
-                    showDonePopup(count)
+
                 } else{
                     showPopup("ERROR", "Check all selections")
                 }
@@ -342,6 +404,29 @@ class HelloApplication : Application() {
 
             }
         }
+        val folderModeCheckBox = CheckBox("Use Modrinth mode").apply {
+            setOnAction {
+
+                val cache = cacheController.getCache()
+                if(isSelected){
+
+                    modrinthProfileDirectoryLabel.text = "Select Modrinth Profile Folder"
+                    cache?.Settings?.useModrinthMode = true
+
+
+                } else{
+                    modrinthProfileDirectoryLabel.text = "Select Mods Folder"
+                    cache?.Settings?.useModrinthMode = false
+                }
+
+                if (cache != null) {
+                    cacheController.saveCache(cache)
+                }
+            }
+        }
+
+
+
         val mainUpdaterMenuVbox = VBox(10.0, modrinthProfileDirectoryLabel, folderHBox, resultFolderLabel, resultFolderHBox, loaderSelectionHBox, versionHBox, updateButton).apply {
             alignment = Pos.CENTER
             padding = Insets(10.0)
@@ -390,7 +475,7 @@ class HelloApplication : Application() {
         }
 
         val onlyStableHBox = HBox(10.0, onlyStableCheckBox)
-    val settingsVBox = VBox(10.0, onlyStableHBox).apply {
+    val settingsVBox = VBox(10.0, onlyStableHBox, folderModeCheckBox).apply {
         alignment = Pos.CENTER
         padding = Insets(10.0)
     }
@@ -420,6 +505,16 @@ class HelloApplication : Application() {
         )
 
         val affiliationLabel = Label("Not affiliated with Mojang or Microsoft")
+
+        val defaultCache = cacheController.getCache()
+        if (defaultCache != null) {
+            modrinthProfileDirectoryPathField.text = defaultCache.modrinthFolderPath
+            resultFolderPathField.text = defaultCache.resultFolderPath
+            showSnapshotsCheckBox.isSelected = defaultCache.showSnapshots
+            folderModeCheckBox.isSelected = defaultCache.Settings.useModrinthMode
+            onlyStableCheckBox.isSelected = defaultCache.Settings.useOnlyStableVersions
+
+        }
 
         val infoVBox = VBox(5.0, infoTextFlow, affiliationLabel).apply {
             alignment = Pos.BOTTOM_LEFT

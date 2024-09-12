@@ -11,4 +11,5 @@ data class Cache(
 
 data class Settings(
     var useOnlyStableVersions: Boolean = false,
+    var useModrinthMode: Boolean = true,
 )

@@ -3,15 +3,11 @@ package org.magnariuk.modpackupdater.data.api
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import javafx.beans.binding.Bindings.isNotEmpty
-import org.magnariuk.modpackupdater.data.classes.ProfileProject
-import org.magnariuk.modpackupdater.data.classes.ProjectVersion
-import org.magnariuk.modpackupdater.data.classes.VersionManifest
-import java.io.File
-import java.io.FileOutputStream
-import java.io.InputStream
-import java.io.InputStreamReader
+import org.magnariuk.modpackupdater.data.classes.*
+import java.io.*
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
 import java.nio.file.Files.copy
 
 
@@ -28,6 +24,132 @@ class ModrinthAPI {
         }
         return false
     }
+
+
+
+    fun search(search_data: String): SearchResults? {
+        val facets = URLEncoder.encode("[[\"project_type:mod\"]]", "UTF-8");
+
+        val versions_url = URL("https://api.modrinth.com/v2/search?query=${search_data}&facets=$facets")
+        val connection = versions_url.openConnection() as HttpURLConnection
+        return try {
+            connection.requestMethod = "GET"
+            connection.connect()
+            if (connection.responseCode == HttpURLConnection.HTTP_OK) {
+                connection.inputStream.use { inputStream ->
+                    InputStreamReader(inputStream).use { reader ->
+                        BufferedReader(reader).use { bufferedReader ->
+                            val jsonText = bufferedReader.readText()
+                            println(jsonText)
+
+                            val gson = Gson()
+                            gson.fromJson<SearchResults>(jsonText, SearchResults::class.java)
+                        }
+                    }
+
+                }
+            } else {
+                println("Error: ${connection.responseCode}")
+                null
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    fun parseInput(input: String): List<String> {
+        return if (input.contains("name=")) {
+            extractNamesFromMap(input)
+        } else {
+            extractNamesFromList(input)
+        }
+    }
+
+    fun extractNamesFromMap(input: String): List<String> {
+        val regex = Regex("""name=([^\s,]+)""")
+        return regex.findAll(input).map { it.groupValues[1] }.toList()
+    }
+
+    fun extractNamesFromList(input: String): List<String> {
+        return input.removeSurrounding("[", "]")
+            .split(", ")
+            .map { it.trim() }
+    }
+
+
+    fun searchProject(data: FabricMod): SearchProject? {
+        if(data.id != null){
+            val search_result = search(data.id)
+            println("Trying search by id: ${data.id}")
+            val project_list_iterator = search_result?.hits?.iterator()
+            if(data.authors != null){
+                val authors = parseInput(data.authors.toString())
+                println("Project's authors: $authors")
+
+                while (project_list_iterator?.hasNext()!!) {
+                    val project = project_list_iterator.next()
+                    println("Found project: ${project.title} - ${project.project_id}\nBy ${project.author}")
+
+                    if(containsIgnoreCase(authors, project.author)){
+                        return project
+                    }
+            }
+
+
+            }
+
+        } else if(data.name != null){
+            val search_result = search(data.name)
+        }
+
+        return null
+    }
+
+    fun containsIgnoreCase(list: List<String>, target: String): Boolean {
+        return list.any { it.equals(target, ignoreCase = true) }
+    }
+
+    fun downloadF(project: SearchProject, version: String, loader: String, resultFolder: File, useOnlyStableVersion: Boolean = false) {
+        val all_versions: List<ProjectVersion>? = getVersions(project.project_id)
+        if(all_versions != null) {
+            val latest_version = filter_versions(all_versions, version, loader, useOnlyStableVersion)
+            if (latest_version != null) {
+
+                val title = project.title
+                println("Found version ${latest_version.version_number}")
+                downloadFile(latest_version, resultFolder)
+
+                if(!latest_version.dependencies!!.isNotEmpty()) {
+                    println("Checking dependencies")
+                    val dependecyIterator =  latest_version.dependencies.iterator()
+                    while (dependecyIterator.hasNext()) {
+                        val dependency = dependecyIterator.next()
+                        val latest_dependency_version =
+                            getVersions(dependency.project_id)?.let { filter_versions(it, version, loader, useOnlyStableVersion) }
+                        println("Found dependency: ${latest_dependency_version?.name}")
+                        if(latest_dependency_version != null){
+                            println("Downloading dependency")
+                            downloadFile(latest_dependency_version, resultFolder)
+                        }
+
+                    }
+                    println()
+                }
+
+            } else{
+                println("Was not found on $loader for $version version")
+            }
+        } else{
+            println("Versions not found: ${project.title} | $version | $loader \n Unexcpected result")
+
+        }
+        println("____________________________________________")
+
+    }
+
 
     fun download(project: ProfileProject, version: String, loader: String, resultFolder: File, projects_list: List<ProfileProject>, useOnlyStableVersion: Boolean = false) {
         val all_versions: List<ProjectVersion>? = getVersions(project.metadata.project.id)

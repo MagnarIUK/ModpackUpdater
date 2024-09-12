@@ -1,5 +1,6 @@
 package org.magnariuk.modpackupdater.data.classes
 
+import com.google.gson.annotations.SerializedName
 import java.io.File
 
 data class ModrinthProfile(
@@ -127,4 +128,27 @@ data class LoaderVersion(
     val id: String,
     val url: String,
     val stable: Boolean,
+)
+
+data class SearchResults(
+    //@SerializedName("object") val searchObject: SearchObject,
+    val hits: List<SearchProject>,
+    val offset: Int,
+    val limit: Int,
+    val total_hits: Int,
+)
+data class SearchProject(
+    val project_id: String,
+    val project_type: String,
+    val slug: String,
+    val author: String,
+    val title: String,
+    val description: String,
+)
+
+data class SearchObject(
+    val hits: List<SearchProject>,
+    val offset: Int,
+    val limit: Int,
+    val total_hits: Int,
 )
